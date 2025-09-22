@@ -63,6 +63,10 @@ def setChangerPosition(strID, position):
     changerEvents.Unadvise(changer)
     device_busy.clear()
 
+def getChangerPosition(strID):
+    changer = MTB.Api.IMTBChanger (mtbroot.GetComponent(strID))
+    return changer.Position
+
 def startMove(strID, speed):
     axis = MTB.Api.IMTBAxis (mtbroot.GetComponent(strID))
     global bMovingAxis
@@ -122,19 +126,83 @@ def create_gui():
         obj_section = CollapsibleSection(root, "Objective Control")
         obj_section.pack(fill="x", pady=5, padx=5)
         obj_frame = obj_section.container
-
+        
         # Objective buttons
+        objButtons = []
         for i in range(1, changer.MaxPosition + 1):
-            ttk.Button(obj_frame, text=f"Obj {i}", command=lambda pos=i: setChangerPosition("MTBObjectiveChanger",pos)).grid(row=0, column=i-1, padx=3, pady=3)
+            try:
+                objButtons.append(ttk.Button(obj_frame, text=f"{int((MTB.Api.IMTBObjective (changer.GetElement(i-1))).Magnification)}x"\
+                       , command=lambda pos=i: setObjectivePosition(pos)))
+            except:
+                objButtons.append(ttk.Button(obj_frame, text="null", command=lambda pos=i: setObjectivePosition(pos)))
+            objButtons[i-1].grid(row=0, column=i-1, padx=3, pady=3)
+
+        objButtons[getChangerPosition("MTBObjectiveChanger") - 1].config(state=tk.DISABLED)
+
+        def setObjectivePosition(pos):
+            tempPos = getChangerPosition("MTBObjectiveChanger")
+            if pos > changer.MaxPosition or pos < 1:
+                pos = (pos - 1) % (changer.MaxPosition) + 1
+            try:
+                setChangerPosition("MTBObjectiveChanger",pos)
+                objButtons[pos - 1].config(state=tk.DISABLED)
+                objButtons[tempPos - 1].config(state=tk.NORMAL)
+            except:
+                print("Failed to set objective position")
+                objButtons[pos - 1].config(state=tk.NORMAL)
 
         # Prev / Next
-        ttk.Button(obj_frame, text="Prev",command=lambda: setChangerPosition("MTBObjectiveChanger",changer.Position-1)).grid(row=1, column=0, padx=3, pady=3)
-        ttk.Button(obj_frame, text="Next",command=lambda: setChangerPosition("MTBObjectiveChanger",changer.Position+1)).grid(row=1, column=1, padx=3, pady=3)
+        ttk.Button(obj_frame, text="Prev",command=lambda: setObjectivePosition(getChangerPosition("MTBObjectiveChanger")-1)).\
+            grid(row=1, column=0, padx=3, pady=3)
+        ttk.Button(obj_frame, text="Next",command=lambda: setObjectivePosition(getChangerPosition("MTBObjectiveChanger")+1)).\
+            grid(row=1, column=1, padx=3, pady=3)
 
 
         # Binding keyboard controls for "prev" and "next"
-        root.bind("<KeyPress-q>",lambda event: setChangerPosition("MTBObjectiveChanger",changer.Position-1))
-        root.bind("<KeyPress-e>",lambda event: setChangerPosition("MTBObjectiveChanger",changer.Position+1))
+        root.bind("<KeyPress-q>",lambda event: setObjectivePosition(getChangerPosition("MTBObjectiveChanger")-1))
+        root.bind("<KeyPress-e>",lambda event: setObjectivePosition(getChangerPosition("MTBObjectiveChanger")+1))
+
+
+    # --- Reflector Control ---
+    if "MTBReflectorChanger" in componentList:
+        # Get the component as a changer so we can get its position information
+        changer = MTB.Api.IMTBChanger (componentList["MTBReflectorChanger"])
+        rfl_section = CollapsibleSection(root, "Reflector Control")
+        rfl_section.pack(fill="x", pady=5, padx=5)
+        rfl_frame = rfl_section.container
+
+        # Reflector buttons
+        rflButtons = []
+        for i in range(1, changer.MaxPosition + 1):
+            try:
+                rflButtons.append(ttk.Button(rfl_frame, text=(MTB.Api.IMTBReflector (changer.GetElement(i-1))).Name,\
+                                              command=lambda pos=i: setChangerPosition("MTBReflectorChanger",pos)))
+            except:
+                rflButtons.append(ttk.Button(rfl_frame, text="null", command=lambda pos=i: setReflectorPosition(pos)))
+            rflButtons[i-1].grid(row=0, column=i-1, padx=3, pady=3)
+
+        def setReflectorPosition(pos):
+            tempPos = getChangerPosition("MTBReflectorChanger")
+            if pos > changer.MaxPosition or pos < 1:
+                pos = (pos - 1) % (changer.MaxPosition) + 1
+            try:
+                setChangerPosition("MTBReflectorChanger",pos)
+                rflButtons[pos - 1].config(state=tk.DISABLED)
+                rflButtons[tempPos - 1].config(state=tk.NORMAL)
+            except:
+                print("Failed to set objective position")
+                rflButtons[pos - 1].config(state=tk.NORMAL)
+
+        # Prev / Next
+        ttk.Button(rfl_frame, text="Prev",command=lambda: setReflectorPosition(getChangerPosition("MTBReflectorChanger")-1))\
+            .grid(row=1, column=0, padx=3, pady=3)
+        ttk.Button(rfl_frame, text="Next",command=lambda: setReflectorPosition(getChangerPosition("MTBReflectorChanger")+1))\
+            .grid(row=1, column=1, padx=3, pady=3)
+
+
+        # Binding keyboard controls for "prev" and "next"
+        root.bind("<Control-q>",lambda event: setReflectorPosition(getChangerPosition("MTBReflectorChanger")-1))
+        root.bind("<Control-e>",lambda event: setReflectorPosition(getChangerPosition("MTBReflectorChanger")+1))
 
 
     # --- Light Control ---
@@ -211,8 +279,10 @@ def create_gui():
         root.bind("<KeyPress-s>", lambda event: (backButton.state(["pressed"]),startMove("MTBStageAxisY",-getXYSpeed())))
         root.bind("<KeyRelease-s>", lambda event: (backButton.state(["!pressed"]),stopMove("MTBStageAxisY")))
 
-        root.bind("<KeyPress-=>", lambda event: increaseXYSpeed())
-        root.bind("<KeyPress-hyphen>", lambda event: decreaseXYSpeed())
+        # root.bind("<KeyPress-=>", lambda event: increaseXYSpeed())
+        # root.bind("<KeyPress-hyphen>", lambda event: decreaseXYSpeed())
+        root.bind("<KeyPress-z>", lambda event: decreaseXYSpeed())
+        root.bind("<KeyPress-x>", lambda event: increaseXYSpeed())
         
 
     # --- Stage Z Control ---
@@ -222,6 +292,16 @@ def create_gui():
         stage_z_section.pack(fill="x", pady=5, padx=5)
         def getZSpeed():
             return (zScale.get() * maxZSpeed) / 100
+        def increaseZSpeed():
+            if zScale.get() >= 50.0:
+                zScale.set(100)
+            else:
+                zScale.set(2*zScale.get())    
+        def decreaseZSpeed():
+            if zScale.get() <= 0.1:
+                zScale.set(0.05)
+            else:
+                zScale.set(zScale.get()/2)        
 
         z_frame = stage_z_section.container
 
@@ -248,6 +328,9 @@ def create_gui():
         root.bind("<KeyPress-Down>", lambda event: (downButton.state(["pressed"]),startMove("MTBFocus",-getZSpeed())))
         root.bind("<KeyRelease-Down>", lambda event: (downButton.state(["!pressed"]),stopMove("MTBFocus")))
         
+        root.bind("<KeyPress-Left>", lambda event: decreaseZSpeed())
+        root.bind("<KeyPress-Right>", lambda event: increaseZSpeed())        
+
     # Log out of MTB before closing
     def on_closing():
         # log out of the MTB service
@@ -317,14 +400,11 @@ for i in range(0, deviceCount):
         component = MTB.Api.IMTBComponent (device.GetComponent(a))
         componentList.update({component.ID: component})
         print("\tComponent " + component.ID)
-        if component.ID == "MTBStage":
+"""         if component.ID == "MTBReflectorChanger":
             try:
-                stage = MTB.Api.IMTBStage (component)
-                print(stage.GetConfiguration())
-                print(stage.AvailableCmdSetModes())
-                print("success")
+                print("Debugging:")
             except:
-                print("oops")
+                print("Error") """
 print("Finished Pulling Components")
 
 
