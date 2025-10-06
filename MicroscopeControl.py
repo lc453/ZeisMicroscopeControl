@@ -11,6 +11,7 @@ import time
 import clr
 
 bMovingAxis = False
+defaultMag = 1
 
 # IMPORTANT: the reference to the current MTB dll needs to be set (possibly to the GAC)
 # the version of the dll must be compatible to the MTB version
@@ -112,8 +113,6 @@ class CollapsibleSection(ttk.Frame):
         else:
             self.container.grid_remove()
 
-
-
 def create_gui():
     root = tk.Tk()
     root.title("Microscope Control Program")
@@ -122,17 +121,22 @@ def create_gui():
     # --- Objective Control ---
     if "MTBObjectiveChanger" in componentList:
         # Get the component as a changer so we can get its position information
-        changer = MTB.Api.IMTBChanger (componentList["MTBObjectiveChanger"])
+        objChanger = MTB.Api.IMTBChanger (componentList["MTBObjectiveChanger"])
         obj_section = CollapsibleSection(root, "Objective Control")
         obj_section.pack(fill="x", pady=5, padx=5)
         obj_frame = obj_section.container
         
         # Objective buttons
         objButtons = []
-        for i in range(1, changer.MaxPosition + 1):
+        for i in range(1, objChanger.MaxPosition + 1):
             try:
-                objButtons.append(ttk.Button(obj_frame, text=f"{int((MTB.Api.IMTBObjective (changer.GetElement(i-1))).Magnification)}x"\
+                mag = int((MTB.Api.IMTBObjective (objChanger.GetElement(i-1))).Magnification)
+                if i == objChanger.Position:
+                    global defaultMag
+                    defaultMag = mag
+                objButtons.append(ttk.Button(obj_frame, text=f"{mag}x"\
                        , command=lambda pos=i: setObjectivePosition(pos)))
+                
             except:
                 objButtons.append(ttk.Button(obj_frame, text="null", command=lambda pos=i: setObjectivePosition(pos)))
             objButtons[i-1].grid(row=0, column=i-1, padx=3, pady=3)
@@ -141,12 +145,19 @@ def create_gui():
 
         def setObjectivePosition(pos):
             tempPos = getChangerPosition("MTBObjectiveChanger")
-            if pos > changer.MaxPosition or pos < 1:
-                pos = (pos - 1) % (changer.MaxPosition) + 1
+            if pos > objChanger.MaxPosition or pos < 1:
+                pos = (pos - 1) % (objChanger.MaxPosition) + 1
             try:
                 setChangerPosition("MTBObjectiveChanger",pos)
                 objButtons[pos - 1].config(state=tk.DISABLED)
                 objButtons[tempPos - 1].config(state=tk.NORMAL)
+                global defaultMag
+                objective = MTB.Api.IMTBObjective (objChanger.GetElement(pos-1))
+                mag = objective.Magnification
+                if mag == 0:
+                    defaultMag = 1
+                else:
+                    defaultMag = int(mag)
             except:
                 print("Failed to set objective position")
                 objButtons[pos - 1].config(state=tk.NORMAL)
@@ -166,25 +177,27 @@ def create_gui():
     # --- Reflector Control ---
     if "MTBReflectorChanger" in componentList:
         # Get the component as a changer so we can get its position information
-        changer = MTB.Api.IMTBChanger (componentList["MTBReflectorChanger"])
+        rflChanger = MTB.Api.IMTBChanger (componentList["MTBReflectorChanger"])
         rfl_section = CollapsibleSection(root, "Reflector Control")
         rfl_section.pack(fill="x", pady=5, padx=5)
         rfl_frame = rfl_section.container
 
         # Reflector buttons
         rflButtons = []
-        for i in range(1, changer.MaxPosition + 1):
+        for i in range(1, rflChanger.MaxPosition + 1):
             try:
-                rflButtons.append(ttk.Button(rfl_frame, text=(MTB.Api.IMTBReflector (changer.GetElement(i-1))).Name,\
+                rflButtons.append(ttk.Button(rfl_frame, text=(MTB.Api.IMTBReflector (rflChanger.GetElement(i-1))).Name,\
                                               command=lambda pos=i: setChangerPosition("MTBReflectorChanger",pos)))
             except:
                 rflButtons.append(ttk.Button(rfl_frame, text="null", command=lambda pos=i: setReflectorPosition(pos)))
             rflButtons[i-1].grid(row=0, column=i-1, padx=3, pady=3)
 
+        rflButtons[getChangerPosition("MTBReflectorChanger") - 1].config(state=tk.DISABLED)
+
         def setReflectorPosition(pos):
             tempPos = getChangerPosition("MTBReflectorChanger")
-            if pos > changer.MaxPosition or pos < 1:
-                pos = (pos - 1) % (changer.MaxPosition) + 1
+            if pos > rflChanger.MaxPosition or pos < 1:
+                pos = (pos - 1) % (rflChanger.MaxPosition) + 1
             try:
                 setChangerPosition("MTBReflectorChanger",pos)
                 rflButtons[pos - 1].config(state=tk.DISABLED)
@@ -206,16 +219,69 @@ def create_gui():
 
 
     # --- Light Control ---
-    if False: # We will focus on the other controls for now
+    if mtbroot.GetComponent("MTBRLHalogenLamp"):
         light_section = CollapsibleSection(root, "Light Control")
         light_section.pack(fill="x", pady=5, padx=5)
 
         light_frame = light_section.container
         light_var = tk.BooleanVar()
-        ttk.Checkbutton(light_frame, text="Light On?", variable=light_var).pack(anchor="w", pady=3)
-        ttk.Label(light_frame, text="Light Intensity").pack(anchor="w")
-        ttk.Scale(light_frame, from_=0, to=100, orient="horizontal").pack(fill="x", pady=3)
+        lightScale_var = tk.DoubleVar()
+        
+        
+        rlshutter = MTB.Api.IMTBChanger (mtbroot.GetComponent("MTBRLShutter"))
 
+        try:
+            servo = MTB.Api.IMTBContinual (mtbroot.GetComponent("MTBRLHalogenLamp"))
+        except:
+            print("Error - not a continual")
+
+        def onLightScaleChanged(val):
+            if light_var.get():
+                if int(val) >servo.GetMinPosition("%") or int(val) > servo.GetMaxPosition("%"):
+                    global bMovingAxis
+                    bMovingAxis = False
+                    device_busy.set()
+                    continualEvents.Advise(servo)
+                    print("Moving " + "MTBRLHalogenLamp" + " to position " + str(val) + "%")
+                    try:
+                        servo.SetPosition(float(val), "%", MTB.Api.MTBCmdSetModes.Synchronous)
+                    except:
+                        print("Setting Lamp Intensity Failed")
+                    continualEvents.Unadvise(servo)
+                    device_busy.clear()
+                
+
+        lightScale = tk.Scale(light_frame, from_=100, to=0, orient="vertical", variable=lightScale_var, command=onLightScaleChanged)
+        lightScale.set(50)
+
+        
+        def onCheckboxChanged():
+            if light_var.get():
+                lightScale.config(state=tk.ACTIVE)
+                setChangerPosition("MTBRLShutter", 2)
+                print("Light Enabled")
+            else:
+                lightScale.config(state=tk.DISABLED)
+                setChangerPosition("MTBRLShutter", 1)
+                print("Light Disabled")
+        
+
+        lightCheckbox = tk.Checkbutton(light_frame, text="Light On?", variable=light_var, command=onCheckboxChanged)
+        lightCheckbox.pack(anchor="w", pady=3)
+        ttk.Label(light_frame, text="Light Intensity").pack(anchor="w")
+        if rlshutter.Position == 2:
+            lightScale.config(state=tk.ACTIVE)
+            lightCheckbox.select()
+        else:
+            lightScale.config(state=tk.DISABLED)
+            lightCheckbox.deselect()
+        
+        lightScale.pack(fill="x", pady=3)
+        
+        root.bind("<KeyPress-l>", lambda event: (lightCheckbox.toggle(),onCheckboxChanged()))
+        root.bind("<KeyPress-,>", lambda event: (lightScale.set(lightScale_var.get()-1)))
+        root.bind("<KeyPress-.>", lambda event: (lightScale.set(lightScale_var.get()+1)))
+        
     # --- Stage XY Control ---
     if ("MTBStageAxisY" in componentList and "MTBStageAxisX" in componentList):
         maxXYSpeed = 10000 # 10000 microns = 1 centimeter
@@ -223,7 +289,7 @@ def create_gui():
         stage_xy_section.pack(fill="x", pady=5, padx=5)
         xyScale = tk.DoubleVar()
         def getXYSpeed():
-            return (xyScale.get() * maxXYSpeed) / 100
+            return (xyScale.get() * maxXYSpeed/defaultMag) / 100
         def increaseXYSpeed():
             if xyScale.get() >= 50.0:
                 xyScale.set(100)
@@ -291,7 +357,7 @@ def create_gui():
         stage_z_section = CollapsibleSection(root, "Stage Z Control")
         stage_z_section.pack(fill="x", pady=5, padx=5)
         def getZSpeed():
-            return (zScale.get() * maxZSpeed) / 100
+            return (zScale.get() * maxZSpeed / defaultMag) / 100
         def increaseZSpeed():
             if zScale.get() >= 50.0:
                 zScale.set(100)
@@ -400,11 +466,13 @@ for i in range(0, deviceCount):
         component = MTB.Api.IMTBComponent (device.GetComponent(a))
         componentList.update({component.ID: component})
         print("\tComponent " + component.ID)
-"""         if component.ID == "MTBReflectorChanger":
+        if component.ID == "MTBRLHalogenLamp":
+            servo = MTB.Api.IMTBContinual (mtbroot.GetComponent("MTBRLHalogenLamp"))
+            shutter = MTB.Api.IMTBChanger (mtbroot.GetComponent("MTBRLShutter"))
             try:
                 print("Debugging:")
             except:
-                print("Error") """
+                print("Error") 
 print("Finished Pulling Components")
 
 
