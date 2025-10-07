@@ -116,7 +116,7 @@ class CollapsibleSection(ttk.Frame):
 def create_gui():
     root = tk.Tk()
     root.title("Microscope Control Program")
-    root.geometry("500x600")
+    root.geometry("600x800")
 
     # --- Objective Control ---
     if "MTBObjectiveChanger" in componentList:
@@ -289,7 +289,10 @@ def create_gui():
         stage_xy_section.pack(fill="x", pady=5, padx=5)
         xyScale = tk.DoubleVar()
         def getXYSpeed():
-            return (xyScale.get() * maxXYSpeed/defaultMag) / 100
+            if useAdaptiveXYSpeed.get():
+                return (xyScale.get() * maxXYSpeed/defaultMag) / 100
+            else:
+                return (xyScale.get() * maxXYSpeed) / 100
         def increaseXYSpeed():
             if xyScale.get() >= 50.0:
                 xyScale.set(100)
@@ -305,10 +308,14 @@ def create_gui():
         xy_frame = stage_xy_section.container
 
         # Slider for XY Speed
-        xyScale = ttk.Scale(xy_frame, from_=0, to=100, orient="horizontal")
+        xyScale = ttk.Scale(xy_frame, from_=0.05, to=100, orient="horizontal")
         xyScale.grid(row=3, column=0, columnspan=3, sticky="ew", pady=3)
         xyScale.set(50)
         xy_frame.grid_columnconfigure(2,weight=1)
+
+        useAdaptiveXYSpeed = tk.BooleanVar(value=True)
+        useAdaptiveXYSpeedBox = tk.Checkbutton(xy_frame, text="Use Adaptive Speed?", var=useAdaptiveXYSpeed)
+        useAdaptiveXYSpeedBox.grid(row=0,column=3,sticky="e", pady=3)
 
         # Arrow buttons for XY
         forwardButton = ttk.Button(xy_frame,text="▲")
@@ -357,7 +364,10 @@ def create_gui():
         stage_z_section = CollapsibleSection(root, "Stage Z Control")
         stage_z_section.pack(fill="x", pady=5, padx=5)
         def getZSpeed():
-            return (zScale.get() * maxZSpeed / defaultMag) / 100
+            if useAdaptiveZSpeed.get():
+                return (zScale.get() * maxZSpeed / defaultMag) / 100
+            else:
+                return (zScale.get() * maxZSpeed) / 100
         def increaseZSpeed():
             if zScale.get() >= 50.0:
                 zScale.set(100)
@@ -370,6 +380,10 @@ def create_gui():
                 zScale.set(zScale.get()/2)        
 
         z_frame = stage_z_section.container
+
+        useAdaptiveZSpeed = tk.BooleanVar(value=True)
+        useAdaptiveZSpeedBox = tk.Checkbutton(z_frame, text="Use Adaptive Speed?", var=useAdaptiveZSpeed)
+        useAdaptiveZSpeedBox.pack(pady=3)
 
         # Create the scale and set the default value to 50%
         zScale = ttk.Scale(z_frame, from_=0, to=100, orient="horizontal")
